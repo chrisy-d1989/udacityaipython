@@ -126,7 +126,7 @@ with open('cat_to_name.json', 'r') as f:
 
 # TODO: Build and train your network
 #Step1: Loading VGG16/VGG19/densenet121 Model
-model = models.vgg16(pretrained=True)
+model = models.densenet121(pretrained=True)
 model
 
 
@@ -139,9 +139,9 @@ for param in model.parameters():
 
 from collections import OrderedDict
 classifier = nn.Sequential(OrderedDict([
-                          ('fc1', nn.Linear(25088,500)),
+                          ('fc1', nn.Linear(1024,500)),
                           ('relu', nn.ReLU()),
-                          ('fc2', nn.Linear(500,2)),
+                          ('fc2', nn.Linear(500,102)),
                           ('output', nn.LogSoftmax(dim=1))
                           ]))
 model.classifier = classifier
@@ -157,10 +157,13 @@ print(cuda)
 # In[19]:
 
 
+
 for cuda in [False, True]:
-    epochs = 2
+    epochs = 1
     steps = 0
-    for epochs in range(epochs):
+    running_loss = 0
+    print_every = 40
+    for e in range(epochs):
         criterion = nn.NLLLoss()
         # Only train the classifier parameters, feature parameters are frozen
         optimizer = optim.Adam(model.classifier.parameters(), lr=0.001)
@@ -177,41 +180,76 @@ for cuda in [False, True]:
             if cuda:
                 # Move input and label tensors to the GPU
                 inputs, labels = inputs.cuda(), labels.cuda()
-            print(inputs)
-            print(labels)
+
             optimizer.zero_grad()
-            #outputs = model.forward(inputs)
             outputs = model.forward(inputs)
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
             
             running_loss += loss.data[0]
-        
+
             if steps % print_every == 0:
-                print("Epoch: {}/{}... ".format(e+1, epochs),
-                  "Loss: {:.4f}".format(running_loss/print_every))
-            
+                # Model in inference mode, dropout is off
+                model.eval()
+
+                accuracy = 0
+                validation_loss = 0
+                for ii, (inputs, labels) in enumerate(validationloader):
+
+                    #images = images.resize_(images.size()[0], 784)
+                    # Set volatile to True so we don't save the history
+                    inputs = Variable(inputs, volatile=True)
+                    labels = Variable(labels, volatile=True)
+                    if cuda:
+                        # Move input and label tensors to the GPU
+                        inputs, labels = inputs.cuda(), labels.cuda()
+
+                    output = model.forward(inputs)
+                    validation_loss += criterion(output, labels).data[0]
+
+                    ## Calculating the accuracy 
+                    # Model's output is log-softmax, take exponential to get the probabilities
+                    ps = torch.exp(output).data
+                    # Class with highest probability is our predicted class, compare with true label
+                    equality = (labels.data == ps.max(1)[1])
+                    # Accuracy is number of correct predictions divided by all predictions, just take the mean
+                    accuracy += equality.type_as(torch.FloatTensor()).mean()
+
+                print("Epoch: {}/{}.. ".format(e+1, epochs),
+                      "Training Loss: {:.3f}.. ".format(running_loss/print_every),
+                      "Validation Loss: {:.3f}.. ".format(validation_loss/len(validationloader)),
+                      "Validation Accuracy: {:.3f}".format(accuracy/len(validationloader)))
+
                 running_loss = 0
-            if ii==3:
-                break
 
-
+                # Make sure dropout is on for training
+                model.train()
+               
+                if ii==3:
+                    break
 # In[ ]:
 
 
 
 # Model in inference mode, dropout is off
+
+# ## Testing your network
+# 
+# It's good practice to test your trained network on test data, images the network has never seen either in training or validation. This will give you a good estimate for the model's performance on completely new images. Run the test images through the network and measure the accuracy, the same way you did validation. You should be able to reach around 70% accuracy on the test set if the model has been trained well.
 model.eval()
 
 accuracy = 0
 test_loss = 0
-for ii, (images, labels) in enumerate(validationloader):
+for ii, (inputs, labels) in enumerate(testloader):
 
     #images = images.resize_(images.size()[0], 784)
     # Set volatile to True so we don't save the history
-    inputs = Variable(images, volatile=True)
+    inputs = Variable(inputs, volatile=True)
     labels = Variable(labels, volatile=True)
+    if cuda:
+        # Move input and label tensors to the GPU
+        inputs, labels = inputs.cuda(), labels.cuda()
 
     output = model.forward(inputs)
     test_loss += criterion(output, labels).data[0]
@@ -225,32 +263,9 @@ for ii, (images, labels) in enumerate(validationloader):
     accuracy += equality.type_as(torch.FloatTensor()).mean()
 
 print("Epoch: {}/{}.. ".format(e+1, epochs),
-      "Training Loss: {:.3f}.. ".format(running_loss/print_every),
+      #"Training Loss: {:.3f}.. ".format(running_loss/print_every),
       "Test Loss: {:.3f}.. ".format(test_loss/len(testloader)),
       "Test Accuracy: {:.3f}".format(accuracy/len(testloader)))
-
-running_loss = 0
-
-
-# ## Testing your network
-# 
-# It's good practice to test your trained network on test data, images the network has never seen either in training or validation. This will give you a good estimate for the model's performance on completely new images. Run the test images through the network and measure the accuracy, the same way you did validation. You should be able to reach around 70% accuracy on the test set if the model has been trained well.
-
-# In[7]:
-
-
-
-
-
-# In[8]:
-
-
-
-
-
-# In[9]:
-
-
 
 
 
@@ -266,17 +281,30 @@ running_loss = 0
 
 
 # TODO: Save the checkpoint 
-
-
-# ## Loading the checkpoint
-# 
-# At this point it's good to write a function that can load a checkpoint and rebuild the model. That way you can come back to this project and keep working on it without having to retrain the network.
-
-# In[ ]:
-
+'''
+model.class_to_idx = image_datasets_training.class_to_idx
+torch.save(model.state_dict(), 'model_stete_dict.pt')
+torch.save(epochs, 'epochs.pt'')
+torch.save(model.class_to_idx, 'model_class_to_idx.pt')
+torch.save(optimizer.state_dict(), 'optimizer.pt')
+'''
+torch.save({
+            'epochs': epochs,
+            'state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'model_class_to_idx': model.class_to_idx,
+            },'checkpoint.pt' )
 
 # TODO: Write a function that loads a checkpoint and rebuilds the model
 
+#model = model.load_state_dict(torch.load(model_stete_dict.pt))
+
+print("=> loading checkpoint")
+checkpoint = torch.load('checkpoint.pt')
+epochs = checkpoint['epochs']
+model = model.load_state_dict(checkpoint['state_dict'])
+class_to_idx = checkpoint('model_class_to_idx')
+print("=> loaded checkpoint")
 
 # # Inference for classification
 # 
@@ -306,13 +334,36 @@ running_loss = 0
 
 # In[ ]:
 
-
 def process_image(image):
-    ''' Scales, crops, and normalizes a PIL image for a PyTorch model,
-        returns an Numpy array
-    '''
+    ''' Scales, crops, and normalizes a PIL image for a PyTorch model, returns an Numpy array ''' 
+    global img
+    from PIL import Image
+    mean = [0.485, 0.456, 0.406] 
+    stdv = [0.229, 0.224, 0.225] 
+    img = Image.open(image)
+    if img.size[0]>=img.size[1]: 
+        img.thumbnail((10000,256)) 
+    else: 
+        img.thumbnail((256,10000))
+
+    half_the_width = img.size[0] / 2
+    half_the_height = img.size[1] / 2
+    img = img.crop(
+        (
+            half_the_width - 112,
+            half_the_height - 112,
+            half_the_width + 112,
+            half_the_height + 112
+        )
+    )
+
+    np_image = np.array(img)
+    img = np_image/255
+    img=(img-mean)/stdv
+
+    img=img.transpose((2,0,1))
     
-    # TODO: Process a PIL image for use in a PyTorch model
+    return img
 
 
 # To check your work, the function below converts a PyTorch tensor and displays it in the notebook. If your `process_image` function works, running the output through this function should return the original image (except for the cropped out portions).
@@ -360,13 +411,29 @@ def imshow(image, ax=None, title=None):
 
 # In[ ]:
 
-
 def predict(image_path, model, topk=5):
     ''' Predict the class (or classes) of an image using a trained deep learning model.
     '''
+    #Feeding Image to the predict function
+    processed_img = process_image(image_path)
+    y = np.expand_dims(processed_img, axis=0)
+    img = torch.from_numpy(y).cuda()
     
-    # TODO: Implement the code to predict the class from an image file
-
+    #arranging model.class_to_idx to get right classes
+    model.class_to_idx = image_datasets_training.class_to_idx
+    res = dict((v,k) for k,v in model.class_to_idx.items()) 
+    model.class_to_idx = res
+    
+    #predicting class from picture
+    model = model.eval()
+    output = model.forward(x)
+    probs = torch.exp(output)
+    top_k = torch.topk(output, topk)
+    probs = top_k[0]
+    classes = top_k[1]
+    
+    
+    return probs, classes
 
 # ## Sanity Checking
 # 
