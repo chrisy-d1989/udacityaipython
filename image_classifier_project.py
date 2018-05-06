@@ -282,29 +282,33 @@ print("Epoch: {}/{}.. ".format(e+1, epochs),
 
 # TODO: Save the checkpoint 
 '''
-model.class_to_idx = image_datasets_training.class_to_idx
 torch.save(model.state_dict(), 'model_stete_dict.pt')
 torch.save(epochs, 'epochs.pt'')
 torch.save(model.class_to_idx, 'model_class_to_idx.pt')
 torch.save(optimizer.state_dict(), 'optimizer.pt')
 '''
+model.class_to_idx = image_datasets_training.class_to_idx
+
 torch.save({
             'epochs': epochs,
-            'state_dict': model.state_dict(),
+            'state_dict': model.state_dict().keys(),
             'optimizer_state_dict': optimizer.state_dict(),
             'model_class_to_idx': model.class_to_idx,
-            },'checkpoint.pt' )
+            },'checkpoint.pt')
 
 # TODO: Write a function that loads a checkpoint and rebuilds the model
 
 #model = model.load_state_dict(torch.load(model_stete_dict.pt))
 
 print("=> loading checkpoint")
-checkpoint = torch.load('checkpoint.pt')
+checkpoint = torch.load('checkpoint.pt', map_location=lambda storage, loc: storage)
+#checkpoint = torch.load('checkpoint.pt')
 epochs = checkpoint['epochs']
+#model = checkpoint['state_dict']
 model = model.load_state_dict(checkpoint['state_dict'])
-class_to_idx = checkpoint('model_class_to_idx')
+class_to_idx = checkpoint['model.class_to_idx']
 print("=> loaded checkpoint")
+
 
 # # Inference for classification
 # 
